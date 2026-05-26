@@ -1,10 +1,13 @@
-def check_string(string1):
-    if string1.startswith("The"):
+def check_string(text):
+    if text.startswith("The"):
         return "Found it!"
-    else: return "Nope"
-    string1= "The cat is on the roof"
-print(check_string(string1))
-    string2= Thumbs up
-print(check_string(string2))
-    string3= "Found it!"
-print(check_string(string3))
+    else:
+        return "Nope."
+
+str1 = 'The'
+str2 = 'Thumbs up'
+str3 = 'Theatre can be boring'
+
+print(check_string(str1))
+print(check_string(str2))
+print(check_string(str3))
