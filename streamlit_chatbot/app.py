@@ -38,19 +38,56 @@ def make_ringtone(duration=1.2, frequency=880, sample_rate=44100):
 
 alarm_sound = make_ringtone()
 
+# ---------- TIME SLOT OPTIONS ----------
+def generate_time_slots():
+    slots = []
+    start_times = []
+
+    for hour in range(7, 23):
+        for minute in [0, 30]:
+            start_times.append((hour, minute))
+
+    durations = [30, 60, 90, 120]
+
+    for hour, minute in start_times:
+        start_dt = datetime(2024, 1, 1, hour, minute)
+
+        for duration in durations:
+            end_dt = start_dt + timedelta(minutes=duration)
+
+            if end_dt.day == start_dt.day and end_dt.hour <= 23:
+                slot = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+                slots.append(slot)
+
+    return slots
+
+
+time_slot_options = generate_time_slots()
+
 # ---------- SESSION STATE ----------
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
 
-if "timetable" not in st.session_state:
-    st.session_state.timetable = pd.DataFrame({
-        "Day": ["Monday", "Tuesday", "Wednesday"],
-        "Start Time": ["09:00", "11:00", "14:00"],
-        "End Time": ["10:30", "12:30", "15:30"],
-        "Subject": ["Mathematics", "Programming", "Study Group"],
-        "Location": ["Room A", "Computer Lab", "Library"],
-        "Mood": ["🌸 Focus", "💻 Coding", "📚 Revision"],
-        "Notes": ["Bring calculator", "Python practice", "Group discussion"]
+required_timetable_columns = [
+    "Time", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"
+]
+
+if (
+    "school_timetable" not in st.session_state
+    or not all(col in st.session_state.school_timetable.columns for col in required_timetable_columns)
+):
+    st.session_state.school_timetable = pd.DataFrame({
+        "Time": [
+            "09:00 - 10:30",
+            "10:30 - 12:00",
+            "13:00 - 14:30",
+            "14:30 - 16:00"
+        ],
+        "Monday": ["Mathematics", "", "Programming", ""],
+        "Tuesday": ["", "English", "", "Revision"],
+        "Wednesday": ["Science", "", "", ""],
+        "Thursday": ["", "Assignment", "", ""],
+        "Friday": ["Quiz", "", "Study Group", ""]
     })
 
 if "pomodoro_running" not in st.session_state:
@@ -132,8 +169,6 @@ with st.sidebar:
     selected_theme = st.selectbox("Choose your colour theme", list(themes.keys()))
 
 theme = themes[selected_theme]
-
-# Lavender sidebar words become black
 sidebar_text_colour = "#000000" if selected_theme == "Lavender Dream 💜" else theme["text"]
 
 # ---------- CSS ----------
@@ -222,7 +257,7 @@ div.stButton > button:hover {{
     padding: 15px;
 }}
 
-/* Keep labels theme-coloured, but make input boxes and dropdown options white */
+/* Make input boxes and dropdown options white */
 [data-baseweb="input"] input {{
     background-color: white !important;
     color: #111111 !important;
@@ -237,7 +272,6 @@ div.stButton > button:hover {{
     color: #111111 !important;
 }}
 
-/* Dropdown option list */
 [role="listbox"] {{
     background-color: white !important;
 }}
@@ -252,10 +286,19 @@ div.stButton > button:hover {{
     color: #111111 !important;
 }}
 
-/* Time picker popup options */
 [data-baseweb="popover"] * {{
     background-color: white !important;
     color: #111111 !important;
+}}
+
+/* School timetable look */
+[data-testid="stDataFrame"] {{
+    border-radius: 18px;
+    overflow: hidden;
+}}
+
+[data-testid="stDataFrame"] div {{
+    font-weight: 600;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -388,49 +431,50 @@ def pomodoro_countdown():
         st.caption("Set your subject and minutes, then press Start Pomodoro.")
 
 # ---------- MAIN LAYOUT ----------
-left_col, right_col = st.columns([1.5, 1])
+left_col, right_col = st.columns([1.6, 1])
 
-# ---------- LEFT COLUMN: TIMETABLE + POMODORO ----------
+# ---------- LEFT COLUMN: MY TIMETABLE + POMODORO ----------
 with left_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("🌈 My Timetable")
+    st.subheader("🏫 My Timetable")
 
-    edited_table = st.data_editor(
-        st.session_state.timetable,
-        num_rows="dynamic",
+    edited_timetable = st.data_editor(
+        st.session_state.school_timetable,
         use_container_width=True,
         hide_index=True,
-        row_height=42,
+        row_height=48,
+        num_rows="dynamic",
         column_config={
-            "Day": st.column_config.SelectboxColumn(
-                "Day",
-                options=[
-                    "Monday", "Tuesday", "Wednesday", "Thursday",
-                    "Friday", "Saturday", "Sunday"
-                ]
+            "Time": st.column_config.SelectboxColumn(
+                "Time",
+                options=time_slot_options,
+                help="Choose the time slot"
             ),
-            "Mood": st.column_config.SelectboxColumn(
-                "Mood",
-                options=[
-                    "🌸 Focus",
-                    "💻 Coding",
-                    "📚 Revision",
-                    "🧪 Lab",
-                    "📝 Assignment",
-                    "☕ Break",
-                    "⭐ Important"
-                ]
-            ),
-            "Notes": st.column_config.TextColumn("Notes / Reminders")
+            "Monday": st.column_config.TextColumn("Monday"),
+            "Tuesday": st.column_config.TextColumn("Tuesday"),
+            "Wednesday": st.column_config.TextColumn("Wednesday"),
+            "Thursday": st.column_config.TextColumn("Thursday"),
+            "Friday": st.column_config.TextColumn("Friday")
         }
     )
 
-    if st.button("💾 Save Timetable"):
-        st.session_state.timetable = edited_table
-        st.success("Your timetable has been saved!")
+    save_col, clear_col = st.columns(2)
+
+    with save_col:
+        if st.button("💾 Save Timetable"):
+            st.session_state.school_timetable = edited_timetable
+            st.success("Your timetable has been saved!")
+
+    with clear_col:
+        if st.button("🧹 Clear Timetable Subjects"):
+            for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]:
+                st.session_state.school_timetable[day] = ""
+            st.success("Subjects cleared. Time slots are kept.")
+            st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ---------- POMODORO ----------
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("⏰ Pomodoro Time!")
 
