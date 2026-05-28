@@ -65,6 +65,38 @@ def generate_time_slots():
 
 time_slot_options = [""] + generate_time_slots()
 
+# ---------- HELPER FUNCTIONS ----------
+def remove_completed_tasks():
+    st.session_state.tasks = [
+        task for task in st.session_state.tasks
+        if not task.get("Done", False)
+    ]
+
+
+def topics_to_list(df):
+    topics = []
+
+    if df is None or "Topics" not in df.columns:
+        return topics
+
+    for item in df["Topics"].tolist():
+        if pd.isna(item):
+            continue
+
+        topic = str(item).strip()
+
+        if topic != "":
+            topics.append(topic)
+
+    return topics[:100]
+
+
+def list_to_topics_df(topics):
+    return pd.DataFrame({
+        "Topics": pd.Series([str(topic) for topic in topics], dtype="string")
+    })
+
+
 # ---------- SESSION STATE ----------
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
@@ -92,13 +124,16 @@ if (
     })
 
 if "topics_df" not in st.session_state:
-    st.session_state.topics_df = pd.DataFrame({
-        "Topics": [
-            "Chapter 7 Mathematics",
-            "Chapter 5 Physics",
-            "Python Loops"
-        ]
-    })
+    st.session_state.topics_df = list_to_topics_df([
+        "Chapter 7 Mathematics",
+        "Chapter 5 Physics",
+        "Python Loops"
+    ])
+else:
+    # This fixes the Streamlit FLOAT column error after clearing topics
+    st.session_state.topics_df = list_to_topics_df(
+        topics_to_list(st.session_state.topics_df)
+    )
 
 if "topics_version" not in st.session_state:
     st.session_state.topics_version = 0
@@ -133,36 +168,6 @@ pomodoro_benefits = [
 
 if "pomodoro_benefit" not in st.session_state:
     st.session_state.pomodoro_benefit = random.choice(pomodoro_benefits)
-
-# ---------- HELPER FUNCTIONS ----------
-def remove_completed_tasks():
-    st.session_state.tasks = [
-        task for task in st.session_state.tasks
-        if not task.get("Done", False)
-    ]
-
-
-def topics_to_list(df):
-    topics = []
-
-    if "Topics" not in df.columns:
-        return topics
-
-    for item in df["Topics"].tolist():
-        if pd.isna(item):
-            continue
-
-        topic = str(item).strip()
-
-        if topic != "":
-            topics.append(topic)
-
-    return topics[:100]
-
-
-def list_to_topics_df(topics):
-    return pd.DataFrame({"Topics": topics})
-
 
 # ---------- THEMES ----------
 themes = {
@@ -489,7 +494,7 @@ def pomodoro_countdown():
 # ---------- MAIN LAYOUT ----------
 left_col, right_col = st.columns([1.6, 1])
 
-# ---------- LEFT COLUMN: MY TIMETABLE + WHEEL + POMODORO ----------
+# ---------- LEFT COLUMN ----------
 with left_col:
     # ---------- MY TIMETABLE ----------
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -538,7 +543,9 @@ with left_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🎡 The Wheel Of Topics")
 
-    st.write("Add topics into the list below. When the wheel picks a topic, that topic will be removed from the list.")
+    st.write(
+        "Add topics into the list below. When the wheel picks a topic, that topic will be removed from the list."
+    )
 
     edited_topics_df = st.data_editor(
         st.session_state.topics_df,
@@ -566,12 +573,7 @@ with left_col:
             cleaned_topics = topics_to_list(edited_topics_df)
             st.session_state.topics_df = list_to_topics_df(cleaned_topics)
             st.session_state.topics_version += 1
-
-            if len(cleaned_topics) > 100:
-                st.warning("Only the first 100 topics were saved.")
-            else:
-                st.success("Topics saved!")
-
+            st.success("Topics saved!")
             st.rerun()
 
     with wheel_col2:
@@ -583,7 +585,6 @@ with left_col:
             else:
                 spin_placeholder = st.empty()
 
-                # Small spinning effect
                 for _ in range(18):
                     temp_topic = random.choice(cleaned_topics)
                     spin_placeholder.markdown(
@@ -614,7 +615,7 @@ with left_col:
 
     with reset_col1:
         if st.button("🧹 Clear All Topics"):
-            st.session_state.topics_df = pd.DataFrame({"Topics": []})
+            st.session_state.topics_df = list_to_topics_df([])
             st.session_state.wheel_result = ""
             st.session_state.topics_version += 1
             st.success("All topics cleared.")
@@ -683,7 +684,7 @@ with left_col:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------- RIGHT COLUMN: ADD TASK + CHECKLIST ----------
+# ---------- RIGHT COLUMN ----------
 with right_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📝 Add Task + Checklist")
