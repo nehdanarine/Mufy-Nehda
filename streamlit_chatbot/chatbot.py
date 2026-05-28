@@ -65,6 +65,26 @@ def generate_time_slots():
 
 time_slot_options = [""] + generate_time_slots()
 
+# ---------- TASK DEADLINE TIME OPTIONS ----------
+def generate_future_time_options(selected_date):
+    now = datetime.now()
+    options = []
+
+    for hour in range(24):
+        for minute in range(60):
+            possible_deadline = datetime.combine(selected_date, time(hour, minute))
+
+            if possible_deadline > now:
+                options.append(f"{hour:02d}:{minute:02d}")
+
+    return options
+
+
+def make_deadline(selected_date, selected_time_text):
+    hour, minute = selected_time_text.split(":")
+    return datetime.combine(selected_date, time(int(hour), int(minute)))
+
+
 # ---------- HELPER FUNCTIONS ----------
 def remove_completed_tasks():
     st.session_state.tasks = [
@@ -101,6 +121,9 @@ def list_to_topics_df(topics):
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
 
+if "task_form_version" not in st.session_state:
+    st.session_state.task_form_version = 0
+
 required_timetable_columns = [
     "Time", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"
 ]
@@ -130,7 +153,6 @@ if "topics_df" not in st.session_state:
         "Python Loops"
     ])
 else:
-    # This fixes the Streamlit FLOAT column error after clearing topics
     st.session_state.topics_df = list_to_topics_df(
         topics_to_list(st.session_state.topics_df)
     )
@@ -318,7 +340,6 @@ div.stButton > button:hover {{
     padding: 15px;
 }}
 
-/* Make input boxes and dropdown options white */
 [data-baseweb="input"] input {{
     background-color: white !important;
     color: #111111 !important;
@@ -352,7 +373,6 @@ div.stButton > button:hover {{
     color: #111111 !important;
 }}
 
-/* Timetable look */
 [data-testid="stDataFrame"] {{
     border-radius: 18px;
     overflow: hidden;
@@ -383,57 +403,11 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">A planner for classes, tasks, reminders, topics, and Pomodoro study sessions.</div>',
+    '<div class="subtitle">A planner for classes, tasks, topics, and Pomodoro study sessions.</div>',
     unsafe_allow_html=True
 )
 
 st.info("💡 Productivity Tip: " + random.choice(tips))
-
-# ---------- NOTIFICATION CHECKER ----------
-@st.fragment(run_every="1s")
-def reminder_checker():
-    now = datetime.now()
-    due_tasks = []
-
-    for task in st.session_state.tasks:
-        if (
-            not task.get("Done", False)
-            and not task.get("Notified", False)
-            and now >= task["Deadline"]
-        ):
-            task["Notified"] = True
-            due_tasks.append(task)
-
-    if due_tasks:
-        st.toast("🔔 Reminder time! A task is due now.", icon="🔔")
-
-        for task in due_tasks:
-            st.warning(
-                f"🔔 Reminder: {task['Task']} for {task['Subject']} is due now!"
-            )
-
-        st.audio(alarm_sound, format="audio/wav", autoplay=True)
-
-    upcoming = [
-        task for task in st.session_state.tasks
-        if not task.get("Done", False) and now < task["Deadline"]
-    ]
-
-    if upcoming:
-        upcoming = sorted(upcoming, key=lambda x: x["Deadline"])
-        next_task = upcoming[0]
-        remaining = next_task["Deadline"] - now
-        total_seconds = max(0, int(remaining.total_seconds()))
-
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-
-        st.success(
-            f"⏳ Next reminder: {next_task['Task']} in "
-            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        )
-    else:
-        st.caption("No upcoming reminders.")
 
 # ---------- POMODORO COUNTDOWN ----------
 @st.fragment(run_every="1s")
@@ -490,6 +464,7 @@ def pomodoro_countdown():
         )
 
         st.caption("Set your subject and minutes, then press Start Pomodoro.")
+
 
 # ---------- MAIN LAYOUT ----------
 left_col, right_col = st.columns([1.6, 1])
@@ -689,49 +664,71 @@ with right_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📝 Add Task + Checklist")
 
+    form_version = st.session_state.task_form_version
     now = datetime.now()
     default_due = now + timedelta(hours=1)
 
-    with st.form("add_task_form", clear_on_submit=True):
-        task_name = st.text_input("Task / Reminder name")
-        task_subject = st.text_input("Subject / Course")
+    task_name = st.text_input(
+        "Task / Reminder name",
+        key=f"task_name_{form_version}"
+    )
 
-        task_date = st.date_input(
-            "Deadline date",
-            value=default_due.date(),
-            min_value=date.today()
-        )
+    task_subject = st.text_input(
+        "Subject / Course",
+        key=f"task_subject_{form_version}"
+    )
 
-        task_time = st.time_input(
+    task_date = st.date_input(
+        "Deadline date",
+        value=default_due.date(),
+        min_value=date.today(),
+        key=f"task_date_{form_version}"
+    )
+
+    available_times = generate_future_time_options(task_date)
+
+    if available_times:
+        task_time_text = st.selectbox(
             "Deadline time",
-            value=time(default_due.hour, default_due.minute)
+            available_times,
+            key=f"task_time_{form_version}_{task_date.isoformat()}"
         )
+    else:
+        task_time_text = None
+        st.error("No future time left for today. Please choose a future date.")
 
-        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
+    priority = st.selectbox(
+        "Priority",
+        ["Low", "Medium", "High"],
+        key=f"task_priority_{form_version}"
+    )
 
-        submitted = st.form_submit_button("➕ Add Task")
-
-    if submitted:
-        deadline = datetime.combine(task_date, task_time)
-
+    if st.button("➕ Save Task"):
         if task_name.strip() == "":
             st.warning("Please enter a task name.")
 
-        elif deadline <= datetime.now():
-            st.error("Please choose a future date and time. Past times are not allowed.")
+        elif task_time_text is None:
+            st.error("Please choose a valid future date and time.")
 
         else:
-            st.session_state.tasks.append({
-                "ID": str(datetime.now().timestamp()),
-                "Task": task_name.strip(),
-                "Subject": task_subject.strip() if task_subject.strip() else "General",
-                "Deadline": deadline,
-                "Priority": priority,
-                "Done": False,
-                "Notified": False
-            })
+            deadline = make_deadline(task_date, task_time_text)
 
-            st.success("Task added successfully!")
+            if deadline <= datetime.now():
+                st.error("Deadline must be in the future. Past time is not allowed.")
+
+            else:
+                st.session_state.tasks.append({
+                    "ID": str(datetime.now().timestamp()),
+                    "Task": task_name.strip(),
+                    "Subject": task_subject.strip() if task_subject.strip() else "General",
+                    "Deadline": deadline,
+                    "Priority": priority,
+                    "Done": False
+                })
+
+                st.success("Task saved successfully!")
+                st.session_state.task_form_version += 1
+                st.rerun()
 
     st.markdown("### ✅ Current Checklist")
 
@@ -743,7 +740,7 @@ with right_col:
             if task["Done"]:
                 status = "✅ Done"
             elif datetime.now() >= task["Deadline"]:
-                status = "🔴 Due now / overdue"
+                status = "🔴 Due / overdue"
             else:
                 status = "🟢 Upcoming"
 
@@ -761,16 +758,6 @@ with right_col:
             st.write(f"⭐ Priority: {task['Priority']}")
             st.write(f"Status: {status}")
 
-            if not task["Done"] and datetime.now() < task["Deadline"]:
-                time_left = task["Deadline"] - datetime.now()
-                total_seconds_left = int(time_left.total_seconds())
-                hours_left, remainder = divmod(total_seconds_left, 3600)
-                minutes_left, seconds_left = divmod(remainder, 60)
-
-                st.write(
-                    f"⏳ Time left: {hours_left:02d}:{minutes_left:02d}:{seconds_left:02d}"
-                )
-
             st.markdown('</div>', unsafe_allow_html=True)
 
         if st.button("🧹 Remove Completed Tasks"):
@@ -780,11 +767,6 @@ with right_col:
 
     else:
         st.write("No tasks yet. Add your first task above.")
-
-    st.divider()
-
-    st.subheader("🔔 Active Reminder Notification")
-    reminder_checker()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -798,5 +780,5 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- FOOTER ----------
 st.caption(
-    "Made for college students to manage classes, deadlines, topics, reminders, and study sessions."
+    "Made for college students to manage classes, deadlines, topics, and study sessions."
 )
