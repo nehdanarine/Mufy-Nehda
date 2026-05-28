@@ -5,6 +5,7 @@ import math
 import wave
 import io
 import struct
+import time as timer
 from datetime import datetime, date, time, timedelta
 
 st.set_page_config(page_title="Student Time Manager", layout="wide")
@@ -62,7 +63,39 @@ def generate_time_slots():
     return slots
 
 
-time_slot_options = generate_time_slots()
+time_slot_options = [""] + generate_time_slots()
+
+# ---------- HELPER FUNCTIONS ----------
+def remove_completed_tasks():
+    st.session_state.tasks = [
+        task for task in st.session_state.tasks
+        if not task.get("Done", False)
+    ]
+
+
+def topics_to_list(df):
+    topics = []
+
+    if df is None or "Topics" not in df.columns:
+        return topics
+
+    for item in df["Topics"].tolist():
+        if pd.isna(item):
+            continue
+
+        topic = str(item).strip()
+
+        if topic != "":
+            topics.append(topic)
+
+    return topics[:100]
+
+
+def list_to_topics_df(topics):
+    return pd.DataFrame({
+        "Topics": pd.Series([str(topic) for topic in topics], dtype="string")
+    })
+
 
 # ---------- SESSION STATE ----------
 if "tasks" not in st.session_state:
@@ -89,6 +122,24 @@ if (
         "Thursday": ["", "Assignment", "", ""],
         "Friday": ["Quiz", "", "Study Group", ""]
     })
+
+if "topics_df" not in st.session_state:
+    st.session_state.topics_df = list_to_topics_df([
+        "Chapter 7 Mathematics",
+        "Chapter 5 Physics",
+        "Python Loops"
+    ])
+else:
+    # This fixes the Streamlit FLOAT column error after clearing topics
+    st.session_state.topics_df = list_to_topics_df(
+        topics_to_list(st.session_state.topics_df)
+    )
+
+if "topics_version" not in st.session_state:
+    st.session_state.topics_version = 0
+
+if "wheel_result" not in st.session_state:
+    st.session_state.wheel_result = ""
 
 if "pomodoro_running" not in st.session_state:
     st.session_state.pomodoro_running = False
@@ -117,13 +168,6 @@ pomodoro_benefits = [
 
 if "pomodoro_benefit" not in st.session_state:
     st.session_state.pomodoro_benefit = random.choice(pomodoro_benefits)
-
-# ---------- REMOVE COMPLETED TASK FUNCTION ----------
-def remove_completed_tasks():
-    st.session_state.tasks = [
-        task for task in st.session_state.tasks
-        if not task.get("Done", False)
-    ]
 
 # ---------- THEMES ----------
 themes = {
@@ -235,6 +279,23 @@ html, body, p, span, label, div, h1, h2, h3, h4, h5, h6 {{
     margin-bottom: 10px;
 }}
 
+.wheel-card {{
+    background-color: {theme["soft"]};
+    padding: 25px;
+    border-radius: 50%;
+    min-height: 220px;
+    width: 220px;
+    margin: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border: 6px solid {theme["accent"]};
+    box-shadow: 0px 8px 22px rgba(0,0,0,0.12);
+    font-size: 20px;
+    font-weight: 900;
+}}
+
 div.stButton > button:first-child {{
     background-color: {theme["soft"]};
     color: {theme["text"]} !important;
@@ -291,7 +352,7 @@ div.stButton > button:hover {{
     color: #111111 !important;
 }}
 
-/* School timetable look */
+/* Timetable look */
 [data-testid="stDataFrame"] {{
     border-radius: 18px;
     overflow: hidden;
@@ -322,7 +383,7 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">A planner for classes, tasks, reminders, and Pomodoro study sessions.</div>',
+    '<div class="subtitle">A planner for classes, tasks, reminders, topics, and Pomodoro study sessions.</div>',
     unsafe_allow_html=True
 )
 
@@ -433,8 +494,9 @@ def pomodoro_countdown():
 # ---------- MAIN LAYOUT ----------
 left_col, right_col = st.columns([1.6, 1])
 
-# ---------- LEFT COLUMN: MY TIMETABLE + POMODORO ----------
+# ---------- LEFT COLUMN ----------
 with left_col:
+    # ---------- MY TIMETABLE ----------
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🏫 My Timetable")
 
@@ -467,9 +529,102 @@ with left_col:
 
     with clear_col:
         if st.button("🧹 Clear Timetable Subjects"):
+            st.session_state.school_timetable = edited_timetable.copy()
+
             for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]:
                 st.session_state.school_timetable[day] = ""
+
             st.success("Subjects cleared. Time slots are kept.")
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ---------- THE WHEEL OF TOPICS ----------
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🎡 The Wheel Of Topics")
+
+    st.write(
+        "Add topics into the list below. When the wheel picks a topic, that topic will be removed from the list."
+    )
+
+    edited_topics_df = st.data_editor(
+        st.session_state.topics_df,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="dynamic",
+        row_height=42,
+        key=f"topics_editor_{st.session_state.topics_version}",
+        column_config={
+            "Topics": st.column_config.TextColumn(
+                "Topics",
+                help="Add up to 100 topics"
+            )
+        }
+    )
+
+    current_topics = topics_to_list(edited_topics_df)
+
+    st.caption(f"Topics available: {len(current_topics)} / 100")
+
+    wheel_col1, wheel_col2 = st.columns([1, 1])
+
+    with wheel_col1:
+        if st.button("💾 Save Topics"):
+            cleaned_topics = topics_to_list(edited_topics_df)
+            st.session_state.topics_df = list_to_topics_df(cleaned_topics)
+            st.session_state.topics_version += 1
+            st.success("Topics saved!")
+            st.rerun()
+
+    with wheel_col2:
+        if st.button("🎡 Spin The Wheel"):
+            cleaned_topics = topics_to_list(edited_topics_df)
+
+            if len(cleaned_topics) == 0:
+                st.warning("Please add at least one topic before spinning.")
+            else:
+                spin_placeholder = st.empty()
+
+                for _ in range(18):
+                    temp_topic = random.choice(cleaned_topics)
+                    spin_placeholder.markdown(
+                        f"<div class='wheel-card'>🎡<br>{temp_topic}</div>",
+                        unsafe_allow_html=True
+                    )
+                    timer.sleep(0.08)
+
+                chosen_topic = random.choice(cleaned_topics)
+
+                remaining_topics = cleaned_topics.copy()
+                remaining_topics.remove(chosen_topic)
+
+                st.session_state.wheel_result = chosen_topic
+                st.session_state.topics_df = list_to_topics_df(remaining_topics)
+                st.session_state.topics_version += 1
+
+                st.rerun()
+
+    if st.session_state.wheel_result:
+        st.success(f"🎯 Topic selected: {st.session_state.wheel_result}")
+        st.markdown(
+            f"<div class='wheel-card'>🎯<br>{st.session_state.wheel_result}</div>",
+            unsafe_allow_html=True
+        )
+
+    reset_col1, reset_col2 = st.columns(2)
+
+    with reset_col1:
+        if st.button("🧹 Clear All Topics"):
+            st.session_state.topics_df = list_to_topics_df([])
+            st.session_state.wheel_result = ""
+            st.session_state.topics_version += 1
+            st.success("All topics cleared.")
+            st.rerun()
+
+    with reset_col2:
+        if st.button("❌ Clear Selected Result"):
+            st.session_state.wheel_result = ""
+            st.success("Selected result cleared.")
             st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -529,7 +684,7 @@ with left_col:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------- RIGHT COLUMN: ADD TASK + CHECKLIST ----------
+# ---------- RIGHT COLUMN ----------
 with right_col:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📝 Add Task + Checklist")
@@ -643,5 +798,5 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- FOOTER ----------
 st.caption(
-    "Made for college students to manage classes, deadlines, reminders, and study sessions."
+    "Made for college students to manage classes, deadlines, topics, reminders, and study sessions."
 )
